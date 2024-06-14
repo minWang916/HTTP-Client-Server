@@ -1,9 +1,4 @@
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
@@ -40,49 +35,53 @@ public class HttpServer {
             try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
                  OutputStream out = clientSocket.getOutputStream()) {
 
-                String requestLine;
-                while ((requestLine = in.readLine()) != null) {
-                    System.out.println("Received request: " + requestLine);
+                String requestLine = in.readLine();
+                System.out.println("Received request: " + requestLine);
 
-                    if (requestLine.startsWith("GET")) {
-                        String[] tokens = requestLine.split(" ");
-                        String fileName = tokens[1].substring(1);
-                        File file = new File(ROOT_DIRECTORY, fileName);
-                        System.out.println("Looking for file: " + file.getPath());
+                if (requestLine.startsWith("GET")) {
+                    String[] tokens = requestLine.split(" ");
+                    String fileName = tokens[1].substring(1);
+                    File file = new File(ROOT_DIRECTORY, fileName);
+                    System.out.println("Looking for file: " + file.getPath());
 
-                        if (file.exists() && !file.isDirectory()) {
-                            String contentType = getContentType(fileName);
+                    if (file.exists() && !file.isDirectory()) {
+                        String contentType = getContentType(fileName);
 
-                            out.write(("HTTP/1.1 200 OK\r\n").getBytes());
-                            out.write(("Content-Type: " + contentType + "\r\n").getBytes());
-                            out.write(("Content-Length: " + file.length() + "\r\n").getBytes());
-                            out.write(("\r\n").getBytes());
-                            out.flush();
+                        out.write(("HTTP/1.1 200 OK\r\n").getBytes());
+                        out.write(("Content-Type: " + contentType + "\r\n").getBytes());
+                        out.write(("Content-Length: " + file.length() + "\r\n").getBytes());
+                        out.write(("\r\n").getBytes());
+                        out.flush();
 
-                            try (FileInputStream fileIn = new FileInputStream(file)) {
-                                byte[] buffer = new byte[1024];
-                                int bytesRead;
-                                while ((bytesRead = fileIn.read(buffer)) != -1) {
-                                    out.write(buffer, 0, bytesRead);
-                                }
-                                out.flush();
+                        try (FileInputStream fileIn = new FileInputStream(file)) {
+                            byte[] buffer = new byte[1024];
+                            int bytesRead;
+                            while ((bytesRead = fileIn.read(buffer)) != -1) {
+                                out.write(buffer, 0, bytesRead);
                             }
-                        } else {
-                            out.write(("HTTP/1.1 404 Not Found\r\n").getBytes());
-                            out.write(("Content-Type: text/plain\r\n").getBytes());
-                            out.write(("\r\n").getBytes());
-                            out.write(("404 File Not Found\r\n").getBytes());
                             out.flush();
                         }
-                    }
-
-                    // Clear any remaining lines of the current request
-                    while (in.ready()) {
-                        in.readLine();
+                    } else {
+                        out.write(("HTTP/1.1 404 Not Found\r\n").getBytes());
+                        out.write(("Content-Type: text/plain\r\n").getBytes());
+                        out.write(("\r\n").getBytes());
+                        out.write(("404 File Not Found\r\n").getBytes());
+                        out.flush();
                     }
                 }
+
+                while (in.ready()) {
+                    in.readLine();
+                }
+
             } catch (IOException e) {
                 e.printStackTrace();
+            } finally {
+                try {
+                    clientSocket.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         }
 
