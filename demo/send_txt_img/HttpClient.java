@@ -28,10 +28,6 @@ public class HttpClient {
     private JTextField urlField;
     private JTextArea responseArea;
     private JLabel imageLabel;
-    private Socket socket;
-    private PrintWriter out;
-    private BufferedReader in;
-    private InputStream socketIn;
 
     public static void main(String[] args) {
         EventQueue.invokeLater(() -> {
@@ -46,7 +42,6 @@ public class HttpClient {
 
     public HttpClient() {
         initialize();
-        setupConnection();
     }
 
     private void initialize() {
@@ -84,23 +79,16 @@ public class HttpClient {
         frame.getContentPane().add(imageLabel, BorderLayout.SOUTH);
     }
 
-    private void setupConnection() {
-        try {
-            socket = new Socket("localhost", 8080);
-            out = new PrintWriter(socket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            socketIn = socket.getInputStream();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
     private void sendRequest() {
         String urlString = urlField.getText();
         responseArea.setText("");
         imageLabel.setIcon(null);
 
-        try {
+        try (Socket socket = new Socket("localhost", 8080);
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             InputStream socketIn = socket.getInputStream()) {
+
             URL url = new URL(urlString);
             out.println("GET " + url.getPath() + " HTTP/1.1");
             out.println("Host: " + url.getHost());
