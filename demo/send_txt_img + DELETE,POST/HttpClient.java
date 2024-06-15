@@ -9,25 +9,24 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
-import javax.swing.JTextField;
+import javax.swing.*;
 
 public class HttpClient {
     private JFrame frame;
     private JTextField urlField;
-    private JTextField postDataField;
     private JTextArea responseArea;
     private JLabel imageLabel;
+    private ExecutorService threadPool;
+    private JComboBox<String> methodComboBox;
+    private JTextArea requestBodyArea;
 
     public static void main(String[] args) {
         EventQueue.invokeLater(() -> {
@@ -42,6 +41,7 @@ public class HttpClient {
 
     public HttpClient() {
         initialize();
+        threadPool = Executors.newFixedThreadPool(10);
     }
 
     private void initialize() {
@@ -60,33 +60,19 @@ public class HttpClient {
         panel.add(urlField);
         urlField.setColumns(25);
 
-        JButton btnRequest = new JButton("Send GET Request");
+        methodComboBox = new JComboBox<>(new String[]{"GET", "POST", "DELETE"});
+        panel.add(methodComboBox);
+
+        JButton btnRequest = new JButton("Send Request");
         btnRequest.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                sendRequest();
+                threadPool.submit(() -> sendRequest(urlField.getText(), methodComboBox.getSelectedItem().toString()));
             }
         });
         panel.add(btnRequest);
 
-        JButton btnDeleteRequest = new JButton("Send DELETE Request");
-        btnDeleteRequest.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                sendDeleteRequest();
-            }
-        });
-        panel.add(btnDeleteRequest);
-
-        JButton btnPostRequest = new JButton("Send POST Request");
-        btnPostRequest.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                sendPostRequest();
-            }
-        });
-        panel.add(btnPostRequest);
-
         responseArea = new JTextArea();
         responseArea.setEditable(false);
-
         JScrollPane textScrollPane = new JScrollPane(responseArea);
         frame.getContentPane().add(textScrollPane, BorderLayout.CENTER);
 
@@ -94,126 +80,58 @@ public class HttpClient {
         imageLabel.setHorizontalAlignment(JLabel.CENTER);
         frame.getContentPane().add(imageLabel, BorderLayout.SOUTH);
 
-        JPanel postPanel = new JPanel();
-        JLabel lblPostData = new JLabel("POST data field:");
-        postPanel.add(lblPostData);
-
-        postDataField = new JTextField();
-        postDataField.setColumns(25);
-        postPanel.add(postDataField);
-
-        frame.getContentPane().add(postPanel, BorderLayout.SOUTH);
+        requestBodyArea = new JTextArea(5, 50);
+        requestBodyArea.setBorder(BorderFactory.createTitledBorder("Request Body"));
+        JScrollPane requestBodyScrollPane = new JScrollPane(requestBodyArea);
+        frame.getContentPane().add(requestBodyScrollPane, BorderLayout.EAST);
     }
 
-    private void sendRequest() {
-        String urlString = urlField.getText();
+    private void sendRequest(String urlString, String method) {
         responseArea.setText("");
         imageLabel.setIcon(null);
 
-        try (Socket socket = new Socket("localhost", 8080);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             InputStream socketIn = socket.getInputStream()) {
-
+        try {
             URL url = new URL(urlString);
-            out.println("GET " + url.getPath() + " HTTP/1.1");
-            out.println("Host: " + url.getHost());
-            out.println("Connection: close");
-            out.println();
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod(method);
 
-            String inputLine;
-            boolean isImage = false;
-            String contentType = "";
-            int contentLength = 0;
+            if ("POST".equals(method)) {
+                connection.setDoOutput(true);
+                try (OutputStreamWriter out = new OutputStreamWriter(connection.getOutputStream())) {
+                    out.write(requestBodyArea.getText());
+                }
+            }
 
-            while (!(inputLine = in.readLine()).isEmpty()) {
-                responseArea.append(inputLine + "\n");
-                if (inputLine.startsWith("Content-Type: ")) {
-                    contentType = inputLine.split(" ")[1];
-                    if (contentType.contains("image/png") || contentType.contains("image/jpeg")) {
-                        isImage = true;
+            int responseCode = connection.getResponseCode();
+            responseArea.append("Response Code: " + responseCode + "\n");
+
+            String contentType = connection.getContentType();
+            int contentLength = connection.getContentLength();
+
+            if (contentType != null && (contentType.contains("image/png") || contentType.contains("image/jpeg")) && contentLength > 0) {
+                byte[] imageBytes = new byte[contentLength];
+                try (InputStream in = connection.getInputStream()) {
+                    in.read(imageBytes);
+                }
+
+                BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
+                Image scaledImage = image.getScaledInstance(frame.getWidth(), -1, Image.SCALE_SMOOTH);
+                ImageIcon imageIcon = new ImageIcon(scaledImage);
+                imageLabel.setIcon(imageIcon);
+            } else {
+                try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    String inputLine;
+                    StringBuilder response = new StringBuilder();
+                    while ((inputLine = in.readLine()) != null) {
+                        response.append(inputLine).append("\n");
                     }
-                }
-                if (inputLine.startsWith("Content-Length: ")) {
-                    contentLength = Integer.parseInt(inputLine.split(" ")[1]);
+                    responseArea.append(response.toString());
                 }
             }
 
-            if (contentLength > 0) {
-                byte[] responseBytes = new byte[contentLength];
-                int bytesRead = 0;
-                while (bytesRead < contentLength) {
-                    int result = socketIn.read(responseBytes, bytesRead, contentLength - bytesRead);
-                    if (result == -1) break;
-                    bytesRead += result;
-                }
-
-                if (isImage) {
-                    BufferedImage image = ImageIO.read(new ByteArrayInputStream(responseBytes));
-                    Image scaledImage = image.getScaledInstance(frame.getWidth(), -1, Image.SCALE_SMOOTH);
-                    ImageIcon imageIcon = new ImageIcon(scaledImage);
-                    imageLabel.setIcon(imageIcon);
-                } else {
-                    String responseText = new String(responseBytes);
-                    responseArea.append(responseText);
-                }
-            }
         } catch (IOException e) {
             e.printStackTrace();
-        }
-    }
-
-    private void sendDeleteRequest() {
-        String urlString = urlField.getText();
-        responseArea.setText("");
-        imageLabel.setIcon(null);
-
-        try (Socket socket = new Socket("localhost", 8080);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             InputStream socketIn = socket.getInputStream()) {
-
-            URL url = new URL(urlString);
-            out.println("DELETE " + url.getPath() + " HTTP/1.1");
-            out.println("Host: " + url.getHost());
-            out.println("Connection: close");
-            out.println();
-
-            String inputLine;
-            while ((inputLine = in.readLine()) != null) {
-                responseArea.append(inputLine + "\n");
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void sendPostRequest() {
-        String urlString = urlField.getText();
-        String postData = postDataField.getText();
-        responseArea.setText("");
-        imageLabel.setIcon(null);
-
-        try (Socket socket = new Socket("localhost", 8080);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             InputStream socketIn = socket.getInputStream()) {
-
-            URL url = new URL(urlString);
-            out.println("POST " + url.getPath() + " HTTP/1.1");
-            out.println("Host: " + url.getHost());
-            out.println("Connection: close");
-            out.println("Content-Length: " + postData.length());
-            out.println();
-            out.println(postData);
-            out.println();
-
-            String inputLine;
-            while ((inputLine = in.readLine()) != null) {
-                responseArea.append(inputLine + "\n");
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
+            responseArea.append("Error: " + e.getMessage());
         }
     }
 }
