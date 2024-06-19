@@ -19,5 +19,5 @@
 
 ### Advance:
 + HTTP Server supports many clients simutaneously.
-+ HTTP Server supports GET or POST method.
-+ HTTP Server supports to download many objects of a requested file.
++ HTTP Server supports GET, DELETE and POST method.
+
